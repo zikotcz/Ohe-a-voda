@@ -9,7 +9,7 @@
 html,body{margin:0;height:100%;background:#0b090e;color:#eee;font-family:system-ui,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
 #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
 #stage{position:relative}
-canvas{display:block;width:100%;height:100%;border-radius:6px;box-shadow:0 0 40px #000}
+canvas{display:block;width:100%;height:100%;border-radius:6px}
 #hud{position:absolute;top:0;right:0;height:5%;display:flex;gap:4px;align-items:center;padding-right:6px}
 #hud button{background:#0008;border:1px solid #fff3;color:#fff;border-radius:6px;font-size:14px;line-height:1;padding:3px 8px;cursor:pointer}
 #hud button:hover{background:#fff2}
@@ -67,7 +67,7 @@ kbd{background:#222;border:1px solid #555;border-bottom-width:3px;border-radius:
 <script>
 'use strict';
 const T=32,GW=30,GH=20,CW=960,CH=640;
-const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const cv=document.getElementById('c'),ctx=cv.getContext('2d',{alpha:false,desynchronized:true});
 const $=id=>document.getElementById(id);
 const CHCOL=['#f2c94c','#c77dff','#4ade80','#fb923c','#38bdf8','#f472b6','#a3e635','#e5e5e5'];
 const chCol=ch=>CHCOL[(ch.charCodeAt(0)-97)%CHCOL.length];
@@ -220,7 +220,7 @@ function load(i){
     levers:d.levers.map(l=>({...l,on:false,rect:{x:l.x*T+8,y:l.y*T+6,w:16,h:26}})),
     movers:d.movers.map(m=>({isDyn:true,gate:!!m.gate,ch:m.ch,auto:m.ch===null,x:m.x*T,y:m.y*T,w:m.w*T,h:m.h*T,full:m.h*T,ax:m.x*T,ay:m.y*T,bx:(m.x+m.dx)*T,by:(m.y+m.dy)*T,toB:false,wait:50})),
     doorA:{x:d.dA.x*T,y:(d.dA.y-1)*T,w:T,h:2*T},doorB:{x:d.dB.x*T,y:(d.dB.y-1)*T,w:T,h:2*T}};
-  const mk=(s,type)=>({type,x:s.x*T+6,y:s.y*T+T-28,w:20,h:28,vx:0,vy:0,ground:false,ride:null,face:1,dead:false,atDoor:false,walk:0});
+  const mk=(s,type)=>({type,x:s.x*T+6,y:s.y*T+T-28,w:20,h:28,vx:0,vy:0,ground:false,ride:null,face:1,jb:0,coy:0,uHeld:false,dead:false,atDoor:false,walk:0});
   players=[mk(d.s1,'fire'),mk(d.s2,'water')];
   boxes=d.boxes.map(b=>({isDyn:true,isBox:true,x:b.x*T+2,y:b.y*T+4,w:28,h:28,vy:0,ride:null}));
   parts=[];frame=0;ticks=0;deadT=0;winT=0;state='play';buildBg();
@@ -319,7 +319,8 @@ function tick(){
     if(p.dead)continue;
     const k=inp(p),ax=(k.r?1:0)-(k.l?1:0);
     p.vx=ax*3.8;if(ax){p.face=ax;p.walk+=.3;}
-    if(k.u&&p.ground){p.vy=-11;p.ground=false;SFX.jump(p.type);}
+    if(k.u&&!p.uHeld)p.jb=7;p.uHeld=!!k.u;p.coy=p.ground?6:p.coy-1;
+    if((k.u&&p.ground)||(p.jb>0&&p.coy>0)){p.vy=-11;p.ground=false;p.jb=0;p.coy=0;SFX.jump(p.type);}else p.jb--;
     p.vy=Math.min(p.vy+.5,12);
     moveX(p,p.vx,true);moveY(p,p.vy);
     p.liq=null;
@@ -372,11 +373,12 @@ function buildBg(){
     }else if(isLiq(ch)){c.fillStyle='#0d0a0f';c.fillRect(px,py,T,T);}
   }
 }
+const liqGrad={};
 function drawLiquids(){
   for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
     const ch=grid[y][x];if(!isLiq(ch))continue;const px=x*T,py=y*T;
     const col=ch==='L'?['#ffd35a','#ff6a1a','#b82e0a']:ch==='W'?['#c9ecff','#2f8fe8','#134a9c']:['#e2ff8a','#62b82a','#2c6a12'];
-    const g=ctx.createLinearGradient(0,py+6,0,py+T);g.addColorStop(0,col[1]);g.addColorStop(1,col[2]);ctx.fillStyle=g;
+    const gk=ch+py;let g=liqGrad[gk];if(!g){g=liqGrad[gk]=ctx.createLinearGradient(0,py+6,0,py+T);g.addColorStop(0,col[1]);g.addColorStop(1,col[2]);}ctx.fillStyle=g;
     ctx.beginPath();ctx.moveTo(px,py+T);
     for(let i=0;i<=T;i+=4)ctx.lineTo(px+i,py+8+Math.sin(frame*.07+(px+i)*.12)*1.8);
     ctx.lineTo(px+T,py+T);ctx.fill();
@@ -386,7 +388,12 @@ function drawLiquids(){
     if(ch!=='W'&&(frame+x*17)%90<45){const t=((frame+x*17)%90)/45;ctx.fillStyle=col[0];ctx.globalAlpha=1-t;ctx.beginPath();ctx.arc(px+8+(x*7%16),py+26-t*14,2.5,0,7);ctx.fill();ctx.globalAlpha=1;}
   }
 }
-function glow(x,y,r,col){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,2*r,2*r);}
+const glowCache={};
+function glow(x,y,r,col){
+  const k=r+col;let c=glowCache[k];
+  if(!c){c=glowCache[k]=document.createElement('canvas');c.width=c.height=2*r;const q=c.getContext('2d'),g=q.createRadialGradient(r,r,0,r,r,r);g.addColorStop(0,col);g.addColorStop(1,'rgba(0,0,0,0)');q.fillStyle=g;q.fillRect(0,0,2*r,2*r);}
+  ctx.drawImage(c,x-r,y-r);
+}
 function drawDoor(d,type,lit){
   const col=type==='fire'?'#ff7a2a':'#4aa8ff';
   ctx.fillStyle='#4d4038';ctx.fillRect(d.x-4,d.y+2,d.w+8,d.h-2);
@@ -502,10 +509,12 @@ if('ontouchstart' in window){
 function fit(){const s=Math.min(innerWidth/CW,innerHeight/CH),st=$('stage');st.style.width=CW*s+'px';st.style.height=CH*s+'px';}
 addEventListener('resize',fit);fit();
 
-let last=performance.now(),acc=0;
+const STEP=1000/60;let last=performance.now(),acc=0;
 function loop(now){
-  acc+=Math.min(100,now-last);last=now;
-  while(acc>=1000/60){if(!G.manual)tick();acc-=1000/60;}
+  let dt=Math.min(250,now-last);last=now;
+  if(Math.abs(dt-STEP)<3)dt=STEP;            // 60Hz displej: přesně jeden krok na snímek
+  acc+=dt;let n=0;
+  while(acc>=STEP-.01){acc-=STEP;if(n++<5&&!G.manual)tick();}
   render();requestAnimationFrame(loop);
 }
 window.G={load,tick,keys,get state(){return state;},get players(){return players;},get boxes(){return boxes;},get lv(){return lv;},LEVELS};
